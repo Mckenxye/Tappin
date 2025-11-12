@@ -209,7 +209,7 @@ const ParentDashboard = () => {
       
       // Agregar owner_type como query parameter
       const ownerType = userRole === 'staff' ? 'staff' : 'parent'
-      const response = await postData(`/students?owner_type=${ownerType}`, studentData)
+      const response = await postData(`/students/?owner_type=${ownerType}`, studentData)
       logger.info('Estudiante creado exitosamente:', response)
       
       logger.event('STUDENT_ADDED', { nombre: formData.nombre, role: userRole })
