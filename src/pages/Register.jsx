@@ -113,7 +113,7 @@ const Register = () => {
       logger.info('Registrando nuevo cliente:', clientData)
 
       // Crear cliente en el backend
-      const response = await postData('/client', clientData)
+      const response = await postData('/client/', clientData)
       logger.info('Cliente creado exitosamente:', response)
 
       // Hacer login automáticamente con las credenciales
