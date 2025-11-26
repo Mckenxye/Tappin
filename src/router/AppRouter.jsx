@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 
 // Pages - Organizadas por rol
 import Login from '../pages/Login'
+import Register from '../pages/Register'
 import SuperAdminDashboard from '../pages/super_admin/Inicio_admin'
 import BranchDashboard from '../pages/branch/Inicio_Branch'
 import PadresBranch from '../pages/branch/Padres_Branch'
@@ -12,6 +13,8 @@ import CobrarBranch from '../pages/branch/Cobrar_Branch'
 import ClientAdminDashboard from '../pages/client_admin/Inicio_Client'
 import ParentDashboard from '../pages/parent/Inicio_Parent'
 import ChildDetails from '../pages/parent/Detalle_Hijo'
+import PaymentSuccess from '../pages/parent/payment/PaymentSuccess'
+import PaymentCancel from '../pages/parent/payment/PaymentCancel'
 
 const AppRouter = () => {
   const { ROLES } = useAuth()
@@ -21,6 +24,10 @@ const AppRouter = () => {
       <Routes>
         {/* Ruta de Login sin protección */}
         <Route path="/" element={<Login />} />
+        <Route path="/login" element={<Login />} />
+        
+        {/* Ruta de Registro sin protección */}
+        <Route path="/register" element={<Register />} />
         
         {/* Dashboard Super Admin */}
         <Route
@@ -120,6 +127,16 @@ const AppRouter = () => {
               <ChildDetails />
             </ProtectedRoute>
           }
+        />
+
+        {/* Páginas de Pago - Protegidas pero accesibles por Parent y Staff */}
+        <Route
+          path="/parent/payment/success"
+          element={<PaymentSuccess />}
+        />
+        <Route
+          path="/parent/payment/cancel"
+          element={<PaymentCancel />}
         />
 
         {/* Página de No Autorizado */}

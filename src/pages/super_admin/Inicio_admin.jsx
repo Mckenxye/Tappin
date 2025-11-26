@@ -41,6 +41,11 @@ const SuperAdminDashboard = () => {
     max_students: ''
   })
   const [errors, setErrors] = useState({})
+  
+  // Estados para la respuesta de Stripe
+  const [stripeOnboardingUrl, setStripeOnboardingUrl] = useState(null)
+  const [clientCreatedData, setClientCreatedData] = useState(null)
+  const [showStripeButtons, setShowStripeButtons] = useState(false)
 
   // Función para mostrar notificación
   const showToast = (message, type = 'success') => {
@@ -67,6 +72,24 @@ const SuperAdminDashboard = () => {
       max_students: ''
     })
     setErrors({})
+    setStripeOnboardingUrl(null)
+    setClientCreatedData(null)
+    setShowStripeButtons(false)
+  }
+  
+  // Función para abrir Stripe Onboarding
+  const handleConfigurePayments = () => {
+    if (stripeOnboardingUrl) {
+      window.open(stripeOnboardingUrl, '_blank')
+      handleCloseModal()
+      showToast('Se ha abierto la página de configuración de pagos de Stripe', 'success')
+    }
+  }
+  
+  // Función para omitir configuración de Stripe
+  const handleSkipStripe = () => {
+    handleCloseModal()
+    showToast('Cliente creado exitosamente. Puede configurar los pagos más tarde.', 'success')
   }
 
   // Manejo de cambios en el formulario
@@ -206,8 +229,18 @@ const SuperAdminDashboard = () => {
         students: dashboardData.students || 0
       })
       
-      handleCloseModal()
-      showToast('Cliente agregado exitosamente', 'success')
+      // Verificar si viene stripe_onboarding_url en la respuesta
+      if (response.stripe_onboarding_url) {
+        setStripeOnboardingUrl(response.stripe_onboarding_url)
+        setClientCreatedData(response.client)
+        setShowStripeButtons(true)
+        showToast(response.message || 'Cliente creado exitosamente', 'success')
+        // No cerrar el modal - mostrar botones de Stripe
+      } else {
+        // Si no hay URL de Stripe, cerrar modal normalmente
+        handleCloseModal()
+        showToast('Cliente agregado exitosamente', 'success')
+      }
     } catch (error) {
       logger.error('Error al agregar cliente:', error)
       const errorMessage = error.response?.data?.detail || error.response?.data?.message || 'Error al agregar el cliente'
@@ -747,34 +780,80 @@ const SuperAdminDashboard = () => {
               </div>
             )}
 
-            {/* Botones */}
-            <div className="flex flex-col-reverse sm:flex-row gap-2.5 sm:gap-3 pt-2 sm:pt-3">
-              <button
-                type="button"
-                onClick={handleCloseModal}
-                disabled={isSubmitting}
-                className="flex-1 px-4 sm:px-5 py-2.5 sm:py-3 bg-gray-100 dark:bg-[#2a2b2e] hover:bg-gray-200 dark:hover:bg-[#3a3a3c] text-light-text dark:text-dark-text font-medium rounded-lg transition-colors text-[13px] sm:text-sm md:text-[15px] disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="flex-1 px-4 sm:px-5 py-2.5 sm:py-3 bg-[#FDB913] hover:bg-[#fcc000] active:bg-[#e5a711] text-black font-semibold rounded-lg transition-colors text-[13px] sm:text-sm md:text-[15px] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {isSubmitting ? (
-                  <>
-                    <svg className="animate-spin h-4 w-4 sm:h-5 sm:w-5 text-black" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            {/* Botones normales del formulario */}
+            {!showStripeButtons && (
+              <div className="flex flex-col-reverse sm:flex-row gap-2.5 sm:gap-3 pt-2 sm:pt-3">
+                <button
+                  type="button"
+                  onClick={handleCloseModal}
+                  disabled={isSubmitting}
+                  className="flex-1 px-4 sm:px-5 py-2.5 sm:py-3 bg-gray-100 dark:bg-[#2a2b2e] hover:bg-gray-200 dark:hover:bg-[#3a3a3c] text-light-text dark:text-dark-text font-medium rounded-lg transition-colors text-[13px] sm:text-sm md:text-[15px] disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="flex-1 px-4 sm:px-5 py-2.5 sm:py-3 bg-[#FDB913] hover:bg-[#fcc000] active:bg-[#e5a711] text-black font-semibold rounded-lg transition-colors text-[13px] sm:text-sm md:text-[15px] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4 sm:h-5 sm:w-5 text-black" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      <span>Creando...</span>
+                    </>
+                  ) : (
+                    'Crear Cliente'
+                  )}
+                </button>
+              </div>
+            )}
+
+            {/* Botones de Stripe (mostrar después de crear el cliente) */}
+            {showStripeButtons && (
+              <div className="space-y-4 pt-4 border-t border-gray-200 dark:border-[#3a3a3c]">
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <svg className="w-6 h-6 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
-                    <span>Creando...</span>
-                  </>
-                ) : (
-                  'Crear Cliente'
-                )}
-              </button>
-            </div>
+                    <div>
+                      <h4 className="text-sm sm:text-base font-semibold text-blue-900 dark:text-blue-100 mb-1">
+                        Configuración de Pagos
+                      </h4>
+                      <p className="text-xs sm:text-sm text-blue-700 dark:text-blue-300">
+                        El cliente ha sido creado exitosamente. Para procesar pagos, debe completar la configuración de Stripe.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-2.5 sm:gap-3">
+                  <button
+                    type="button"
+                    onClick={handleSkipStripe}
+                    className="flex-1 px-4 sm:px-5 py-2.5 sm:py-3 bg-gray-100 dark:bg-[#2a2b2e] hover:bg-gray-200 dark:hover:bg-[#3a3a3c] text-light-text dark:text-dark-text font-medium rounded-lg transition-colors text-[13px] sm:text-sm md:text-[15px] flex items-center justify-center gap-2"
+                  >
+                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    <span>Omitir</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfigurePayments}
+                    className="flex-1 px-4 sm:px-5 py-2.5 sm:py-3 bg-[#FDB913] hover:bg-[#fcc000] active:bg-[#e5a711] text-black font-semibold rounded-lg transition-colors text-[13px] sm:text-sm md:text-[15px] flex items-center justify-center gap-2"
+                  >
+                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                    </svg>
+                    <span>Configurar Pagos</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </form>
         </div>
       </Modal>

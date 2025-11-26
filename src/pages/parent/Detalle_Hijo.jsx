@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import Modal from '../../components/Modal'
 import Toast from '../../components/Toast'
-import { getStudentById, updateStudentById, getTransactionHistory } from '../../services/api'
+import { getStudentById, updateStudentById, getTransactionHistory, postData } from '../../services/api'
 import { normalizeStudent, denormalizeStudentUpdate, normalizeTransactionList } from '../../services/normalizers'
 import { validateForm, isRequired } from '../../utils/validation'
 import { useAuth } from '../../context/AuthContext'
@@ -16,7 +16,6 @@ const ChildDetails = () => {
   const numericChildId = childId ? Number(childId) : null
   const [isScrolled, setIsScrolled] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
-  const [isDevModalOpen, setIsDevModalOpen] = useState(false)
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false)
   const [toast, setToast] = useState(null)
   const [editFormData, setEditFormData] = useState({
@@ -32,6 +31,15 @@ const ChildDetails = () => {
   const [isLoadingHistory, setIsLoadingHistory] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const containerRef = useRef(null)
+  
+  // Estados para recarga de fondos
+  const [rechargeAmount, setRechargeAmount] = useState('')
+  const [rechargeError, setRechargeError] = useState('')
+  const [isRecharging, setIsRecharging] = useState(false)
+  
+  // Estados para modales separados
+  const [isRechargeModalOpen, setIsRechargeModalOpen] = useState(false)
+  const [isReceiveModalOpen, setIsReceiveModalOpen] = useState(false)
 
   // Resetear scroll al inicio cuando se monta o cambia el childId
   useEffect(() => {
@@ -290,12 +298,97 @@ const ChildDetails = () => {
     }
   }
 
-  const handleOpenDevModal = () => {
-    setIsDevModalOpen(true)
+  // Funciones para modal de recarga (Agregar fondos)
+  const handleOpenRechargeModal = () => {
+    setRechargeAmount('10')
+    setRechargeError('')
+    setIsRechargeModalOpen(true)
   }
 
-  const handleCloseDevModal = () => {
-    setIsDevModalOpen(false)
+  const handleCloseRechargeModal = () => {
+    setRechargeAmount('')
+    setRechargeError('')
+    setIsRecharging(false)
+    setIsRechargeModalOpen(false)
+  }
+  
+  // Funciones para modal de recibir (en desarrollo)
+  const handleOpenReceiveModal = () => {
+    setIsReceiveModalOpen(true)
+  }
+
+  const handleCloseReceiveModal = () => {
+    setIsReceiveModalOpen(false)
+  }
+  
+  // Manejar cambio en el input de recarga
+  const handleRechargeAmountChange = (e) => {
+    const value = e.target.value
+    setRechargeAmount(value)
+    
+    // Limpiar error al escribir
+    if (rechargeError) {
+      setRechargeError('')
+    }
+  }
+  
+  // Función para recargar fondos
+  const handleRecharge = async (e) => {
+    e.preventDefault()
+    
+    // Validar monto
+    if (!rechargeAmount || rechargeAmount.trim() === '') {
+      setRechargeError('El monto es requerido')
+      return
+    }
+    
+    const amount = parseFloat(rechargeAmount)
+    
+    if (isNaN(amount) || amount < 10) {
+      setRechargeError('El monto mínimo es de $10 MXN')
+      return
+    }
+    
+    try {
+      setIsRecharging(true)
+      
+      const rechargeData = {
+        student_id: childData.id,
+        amount: amount,
+        payment_method: 'checkout'
+      }
+      
+      logger.info('=== DATOS ENVIADOS AL BACKEND ===')
+      logger.info('Recharge Data:', JSON.stringify(rechargeData, null, 2))
+      console.log('🔵 ENVIANDO AL BACKEND:', rechargeData)
+      
+      // Llamar al endpoint de recarga
+      const response = await postData('/stripe/payments/recharge', rechargeData)
+      logger.info('=== RESPUESTA DEL BACKEND ===')
+      logger.info('Response:', JSON.stringify(response, null, 2))
+      console.log('🟢 RESPUESTA DEL BACKEND:', response)
+      
+      // Verificar si viene el link de pago
+      if (response.checkout_url || response.payment_url || response.url) {
+        const checkoutUrl = response.checkout_url || response.payment_url || response.url
+        
+        logger.info('=== REDIRIGIENDO A STRIPE ===')
+        logger.info('Checkout URL:', checkoutUrl)
+        console.log('🟡 REDIRIGIENDO A STRIPE:', checkoutUrl)
+        
+        // Redirigir al checkout de Stripe
+        window.location.href = checkoutUrl
+      } else {
+        throw new Error('No se recibió la URL de pago')
+      }
+      
+    } catch (error) {
+      logger.error('Error al recargar fondos:', error)
+      console.error('🔴 ERROR AL RECARGAR:', error)
+      console.error('🔴 DETALLES DEL ERROR:', error.response?.data)
+      setRechargeError(error.response?.data?.detail || error.response?.data?.message || 'Error al procesar la recarga')
+      setIsRecharging(false)
+    }
   }
 
   // Mostrar loading mientras cargan los datos
@@ -447,9 +540,9 @@ const ChildDetails = () => {
 
         {/* Botones de acción */}
         <div className="grid grid-cols-3 gap-3 sm:gap-4 md:gap-5 mb-6 sm:mb-7 md:mb-8">
-          {/* Botón Recibido */}
+          {/* Botón Recibir */}
           <button 
-            onClick={handleOpenDevModal}
+            onClick={handleOpenReceiveModal}
             className="flex flex-col items-center gap-2 sm:gap-2.5 p-3 sm:p-4 hover:scale-105 transition-transform duration-200"
           >
             <div className="w-14 h-14 sm:w-16 sm:h-16 md:w-[72px] md:h-[72px] rounded-xl sm:rounded-[14px] bg-[#FDB913] hover:bg-[#fcc000] active:bg-[#e5a711] flex items-center justify-center shadow-md hover:shadow-lg transition-all duration-200">
@@ -499,7 +592,7 @@ const ChildDetails = () => {
 
           {/* Botón Agregar fondos */}
           <button 
-            onClick={handleOpenDevModal}
+            onClick={handleOpenRechargeModal}
             className="flex flex-col items-center gap-2 sm:gap-2.5 p-3 sm:p-4 hover:scale-105 transition-transform duration-200"
           >
             <div className="w-14 h-14 sm:w-16 sm:h-16 md:w-[72px] md:h-[72px] rounded-xl sm:rounded-[14px] bg-[#FDB913] hover:bg-[#fcc000] active:bg-[#e5a711] flex items-center justify-center shadow-md hover:shadow-lg transition-all duration-200">
@@ -700,10 +793,114 @@ const ChildDetails = () => {
         </div>
       </Modal>
 
-      {/* Modal de característica en desarrollo */}
+      {/* Modal de recarga de fondos */}
       <Modal 
-        isOpen={isDevModalOpen} 
-        onClose={handleCloseDevModal}
+        isOpen={isRechargeModalOpen} 
+        onClose={handleCloseRechargeModal}
+        title="Agregar fondos"
+      >
+        <div className="space-y-5 sm:space-y-5 md:space-y-6">
+          <p className="text-light-text-secondary dark:text-gray-400 text-[13px] sm:text-sm leading-relaxed">
+            Ingrese el monto que desea agregar a la cuenta de <span className="font-semibold text-light-text dark:text-dark-text">{childData?.name}</span>
+          </p>
+
+          <form onSubmit={handleRecharge} className="space-y-4 sm:space-y-5">
+            {/* Campo Monto */}
+            <div className="relative">
+              <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
+                <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <input
+                type="number"
+                id="rechargeAmount"
+                name="rechargeAmount"
+                value={rechargeAmount}
+                onChange={handleRechargeAmountChange}
+                min="10"
+                step="1"
+                placeholder=" "
+                disabled={isRecharging}
+                className={`peer w-full pl-12 pr-4 pt-6 pb-2 text-[15px] sm:text-base bg-gray-100 dark:bg-[#1a1a1a] rounded-lg text-light-text dark:text-dark-text focus:outline-none transition-all ${
+                  rechargeError 
+                    ? 'border-2 border-red-500 focus:ring-2 focus:ring-red-500' 
+                    : 'border border-gray-300 dark:border-[#3a3a3c] focus:ring-2 focus:ring-[#FDB913] focus:border-transparent'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              />
+              <label 
+                htmlFor="rechargeAmount" 
+                className={`absolute left-12 text-gray-400 transition-all duration-200 pointer-events-none ${
+                  rechargeAmount 
+                    ? 'top-2 text-xs' 
+                    : 'top-[18px] text-[15px] sm:text-base peer-focus:top-2 peer-focus:text-xs'
+                }`}
+              >
+                Monto ($)
+              </label>
+              {rechargeError && (
+                <p className="text-red-500 text-[13px] sm:text-sm mt-1.5 ml-1">{rechargeError}</p>
+              )}
+              <p className="text-gray-500 dark:text-gray-400 text-xs sm:text-sm mt-1.5 ml-1">
+                Monto mínimo a recargar: $10 MXN
+              </p>
+            </div>
+
+            {/* Información adicional */}
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <svg className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div>
+                  <p className="text-xs sm:text-sm text-blue-700 dark:text-blue-300">
+                    Será redirigido a la página segura de Stripe para completar el pago.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Botones */}
+            <div className="flex flex-col-reverse sm:flex-row gap-2.5 sm:gap-3 pt-2 sm:pt-3">
+              <button
+                type="button"
+                onClick={handleCloseRechargeModal}
+                disabled={isRecharging}
+                className="flex-1 px-4 sm:px-5 py-2.5 sm:py-3 bg-gray-100 dark:bg-[#2a2b2e] hover:bg-gray-200 dark:hover:bg-[#3a3a3c] text-light-text dark:text-dark-text font-medium rounded-lg transition-colors text-[13px] sm:text-sm md:text-[15px] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={isRecharging}
+                className="flex-1 px-4 sm:px-5 py-2.5 sm:py-3 bg-[#FDB913] hover:bg-[#fcc000] active:bg-[#e5a711] text-black font-semibold rounded-lg transition-colors text-[13px] sm:text-sm md:text-[15px] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {isRecharging ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4 sm:h-5 sm:w-5 text-black" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>Procesando...</span>
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                    </svg>
+                    <span>Continuar al pago</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        </div>
+      </Modal>
+
+      {/* Modal de recibir fondos (en desarrollo) */}
+      <Modal 
+        isOpen={isReceiveModalOpen} 
+        onClose={handleCloseReceiveModal}
         showIcon={false}
         showCloseButton={false}
       >
@@ -738,7 +935,7 @@ const ChildDetails = () => {
 
           {/* Botón Entendido */}
           <button
-            onClick={handleCloseDevModal}
+            onClick={handleCloseReceiveModal}
             className="w-full bg-[#FDB913] hover:bg-[#fcc000] active:bg-[#e5a711] text-black font-bold py-3.5 sm:py-4 rounded-lg transition-all duration-200 text-[15px] sm:text-base shadow-sm hover:shadow-md"
           >
             Entendido

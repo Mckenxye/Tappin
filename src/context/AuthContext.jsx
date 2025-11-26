@@ -1,4 +1,5 @@
-import { createContext, useContext, useState } from 'react'
+import { createContext, useContext, useState, useEffect } from 'react'
+import { isTokenExpired, getUserFromToken } from '../utils/jwt'
 
 const AuthContext = createContext()
 
@@ -11,15 +12,6 @@ export const useAuth = () => {
 }
 
 export const AuthProvider = ({ children }) => {
-  // Inicializar desde localStorage si existe
-  const storedUser = (() => {
-    try {
-      return JSON.parse(localStorage.getItem('user') || 'null')
-    } catch (e) {
-      return null
-    }
-  })()
-
   // Normalizar user shape
   const normalizeUser = (u) => {
     if (!u) return null
@@ -32,10 +24,45 @@ export const AuthProvider = ({ children }) => {
     }
   }
 
-  const token = localStorage.getItem('token')
-  const [user, setUser] = useState(normalizeUser(storedUser))
-  // Consider authenticated if there is a valid token in storage
-  const [isAuthenticated, setIsAuthenticated] = useState(!!token)
+  // Inicializar desde token si existe y es válido
+  const initializeAuth = () => {
+    try {
+      const token = localStorage.getItem('token')
+      
+      if (!token) {
+        return { user: null, isAuth: false }
+      }
+
+      // Verificar si el token ha expirado
+      if (isTokenExpired(token)) {
+        // Limpiar datos si el token expiró
+        localStorage.removeItem('token')
+        localStorage.removeItem('user')
+        localStorage.removeItem('isAuthenticated')
+        return { user: null, isAuth: false }
+      }
+
+      // Obtener usuario del token
+      const userData = getUserFromToken(token)
+      
+      if (!userData) {
+        return { user: null, isAuth: false }
+      }
+
+      // Actualizar localStorage con datos del token
+      localStorage.setItem('user', JSON.stringify(userData))
+      localStorage.setItem('isAuthenticated', 'true')
+
+      return { user: normalizeUser(userData), isAuth: true }
+    } catch (e) {
+      console.error('Error al inicializar autenticación:', e)
+      return { user: null, isAuth: false }
+    }
+  }
+
+  const { user: initialUser, isAuth: initialAuth } = initializeAuth()
+  const [user, setUser] = useState(initialUser)
+  const [isAuthenticated, setIsAuthenticated] = useState(initialAuth)
 
   // Roles disponibles
   const ROLES = {

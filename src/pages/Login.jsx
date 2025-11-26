@@ -5,6 +5,7 @@ import { login } from '../services/api'
 import { validateForm, isRequired, isValidEmail, isValidPassword } from '../utils/validation'
 import { ERROR_MESSAGES } from '../constants'
 import logger from '../utils/logger'
+import { getUserFromToken } from '../utils/jwt'
 import logoTappin from '../assets/logoTappin.png'
 
 const Login = () => {
@@ -74,31 +75,31 @@ const Login = () => {
         password: formData.contrasena
       })
 
+      // El backend ahora solo devuelve el token
+      // Necesitamos decodificarlo para obtener la información del usuario
+      const token = response.token || response.access_token
+      
+      if (!token) {
+        throw new Error('No se recibió token del servidor')
+      }
+
+      // Guardar el token PRIMERO
+      localStorage.setItem('token', token)
+
+      // Decodificar el token para obtener información del usuario
+      const userData = getUserFromToken(token)
+      
+      if (!userData) {
+        throw new Error('No se pudo decodificar el token')
+      }
+
       logger.event('LOGIN_SUCCESS', { 
         email: formData.correo, 
-        rol: response.rol,
-        id: response.id 
+        rol: userData.role,
+        id: userData.id 
       })
 
-      // El token ya se guarda automáticamente en la función login() del servicio
-      // Normalizar y guardar información adicional del usuario en localStorage
-      
-      // Normalizar el rol: el backend devuelve "client" pero internamente usamos "client_admin"
-      let normalizedRole = response.rol || response.role
-      if (normalizedRole === 'client') {
-        normalizedRole = 'client_admin'
-      }
-      
-      const userData = {
-        id: response.id,
-        // Backend devuelve 'rol' en español; crear also 'role' para compatibilidad
-        rol: normalizedRole,
-        role: normalizedRole,
-        email: formData.correo,
-        // Si el backend devuelve nombre, úsalo, sino vacío
-        name: response.name || response.user?.name || ''
-      }
-
+      // Guardar usuario en localStorage
       localStorage.setItem('user', JSON.stringify(userData))
       localStorage.setItem('isAuthenticated', 'true')
 
@@ -114,7 +115,7 @@ const Login = () => {
         staff: '/staff'
       }
 
-      const route = dashboardRoutes[normalizedRole] || '/parent'
+      const route = dashboardRoutes[userData.role] || '/parent'
       navigate(route)
       
     } catch (error) {
@@ -258,16 +259,16 @@ const Login = () => {
               )}
             </button>
 
-            {/* Recuperar contraseña */}
+            {/* Registrarse */}
             <div className="text-center mt-4 sm:mt-5">
               <p className="text-light-text-secondary dark:text-gray-400 text-[13px] sm:text-sm transition-colors duration-200 leading-relaxed">
-                Olvidaste tu contraseña?{' '}
+                ¿Eres Cliente?{' '}
                 <button
                   type="button"
-                  onClick={() => logger.info('Recuperar contraseña - funcionalidad pendiente')}
+                  onClick={() => navigate('/register')}
                   className="text-[#FDB913] hover:text-[#fcc000] font-semibold transition-colors"
                 >
-                  Recupérala aquí
+                  Regístrate aquí
                 </button>
               </p>
             </div>

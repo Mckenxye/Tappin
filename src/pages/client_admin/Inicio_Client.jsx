@@ -9,6 +9,7 @@ import { getData, postData, patchData, updateData, deleteData, getClientBranches
 import { normalizeBranchList, denormalizeBranchCreate, denormalizeBranchUpdate } from '../../services/normalizers'
 import { validateForm, isRequired, isValidEmail, isValidPassword } from '../../utils/validation'
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../../constants'
+import { getUserFromToken } from '../../utils/jwt'
 import logger from '../../utils/logger'
 
 const ClientAdminDashboard = () => {
@@ -33,6 +34,11 @@ const ClientAdminDashboard = () => {
   const [toast, setToast] = useState(null)
   const containerRef = useRef(null)
   const scrollKey = '/client-admin'
+  
+  // Estados para Stripe
+  const [stripeAccountStatus, setStripeAccountStatus] = useState(null)
+  const [isLoadingStripe, setIsLoadingStripe] = useState(false)
+  const [stripeClientId, setStripeClientId] = useState(null)
 
   // Función para mostrar notificación
   const showToast = (message, type = 'success') => {
@@ -43,6 +49,181 @@ const ClientAdminDashboard = () => {
   const closeToast = () => {
     setToast(null)
   }
+  
+  // Función para obtener el estado de la cuenta de Stripe
+  const fetchStripeStatus = async () => {
+    try {
+      setIsLoadingStripe(true)
+      
+      // Obtener client_id del token
+      const token = localStorage.getItem('token')
+      
+      if (!token) {
+        throw new Error('Token no disponible')
+      }
+      
+      // Decodificar el token para obtener el client_id
+      const userData = getUserFromToken(token)
+      logger.info('Datos del usuario desde token:', userData)
+      
+      const clientId = userData?.id
+      
+      if (!clientId) {
+        setStripeAccountStatus({
+          status: 'error',
+          message: 'No se encontró el ID de cliente'
+        })
+        return
+      }
+      
+      // Intentar obtener el estado directamente desde el backend usando client_id
+      // El backend devolverá el strip_id actualizado desde la base de datos
+      try {
+        const statusData = await getData(`/stripe/onboarding/status?client_id=${clientId}`)
+        logger.info('Estado de Stripe:', statusData)
+        
+        // Mapear la respuesta del backend al formato del frontend, preservando todos los datos
+        if (!statusData.success || !statusData.onboarded) {
+          // Si no está onboarded, determinar el estado
+          if (!statusData.account_id) {
+            setStripeAccountStatus({
+              status: 'not_configured',
+              message: statusData.message || 'La cuenta de Stripe no ha sido configurada',
+              ...statusData // Preservar todos los datos del backend
+            })
+          } else if (statusData.charges_enabled) {
+            setStripeAccountStatus({
+              status: 'active',
+              message: statusData.message || 'Cuenta activa y lista para recibir pagos',
+              ...statusData // Preservar todos los datos del backend
+            })
+          } else {
+            setStripeAccountStatus({
+              status: 'pending',
+              message: statusData.message || 'Onboarding pendiente. Complete la configuración de su cuenta.',
+              ...statusData // Preservar todos los datos del backend
+            })
+          }
+        } else {
+          setStripeAccountStatus({
+            status: 'active',
+            message: statusData.message || 'Cuenta activa y lista para recibir pagos',
+            ...statusData // Preservar todos los datos del backend
+          })
+        }
+        setStripeClientId(clientId)
+      } catch (error) {
+        // Si da 404 o error, probablemente no tiene cuenta configurada
+        if (error.response?.status === 404) {
+          setStripeAccountStatus({
+            status: 'not_configured',
+            message: 'La cuenta de Stripe no ha sido configurada'
+          })
+          setStripeClientId(clientId)
+        } else {
+          throw error
+        }
+      }
+    } catch (error) {
+      logger.error('Error al obtener estado de Stripe:', error)
+      setStripeAccountStatus({
+        status: 'error',
+        message: error.response?.data?.detail || 'Error al obtener el estado de la cuenta'
+      })
+    } finally {
+      setIsLoadingStripe(false)
+    }
+  }
+  
+  // Función para regenerar el link de onboarding
+  const handleRegenerateOnboarding = async () => {
+    try {
+      // Obtener el client_id del token
+      const token = localStorage.getItem('token')
+      
+      if (!token) {
+        showToast('Token no disponible', 'error')
+        return
+      }
+      
+      const userData = getUserFromToken(token)
+      const clientId = parseInt(userData?.id)
+      
+      if (!clientId || isNaN(clientId)) {
+        showToast('No se encontró el ID de cliente', 'error')
+        return
+      }
+      
+      setIsLoadingStripe(true)
+      
+      const response = await getData(`/stripe/onboarding/refresh?client_id=${clientId}`)
+      logger.info('Link regenerado:', response)
+      
+      if (response.onboarding_url) {
+        // Redirigir a la URL de onboarding
+        window.location.href = response.onboarding_url
+        showToast('Redirigiendo a Stripe...', 'success')
+      } else {
+        showToast('No se pudo obtener el link de configuración', 'error')
+      }
+    } catch (error) {
+      logger.error('Error al regenerar link de Stripe:', error)
+      showToast(error.response?.data?.detail || 'Error al regenerar el link de Stripe', 'error')
+    } finally {
+      setIsLoadingStripe(false)
+    }
+  }
+  
+  // Función para configurar cuenta por primera vez
+  const handleConfigureStripe = async () => {
+    try {
+      // Obtener el user id del token
+      const token = localStorage.getItem('token')
+      
+      if (!token) {
+        showToast('Token no disponible', 'error')
+        return
+      }
+      
+      const userData = getUserFromToken(token)
+      const clientId = parseInt(userData?.id)
+      
+      logger.info('Client ID obtenido del token:', clientId)
+      logger.info('User data completo:', userData)
+      
+      if (!clientId || isNaN(clientId)) {
+        showToast('No se encontró el ID de cliente', 'error')
+        return
+      }
+      
+      setIsLoadingStripe(true)
+      
+      // Usar el endpoint de refresh para regenerar el link de onboarding
+      logger.info('Llamando a /stripe/onboarding/refresh con client_id:', clientId)
+      const response = await getData(`/stripe/onboarding/refresh?client_id=${clientId}`)
+      logger.info('Respuesta del servidor:', response)
+      
+      if (response.onboarding_url) {
+        // Redirigir a la URL de onboarding
+        window.location.href = response.onboarding_url
+        showToast('Redirigiendo a Stripe...', 'success')
+      } else {
+        showToast('No se pudo obtener el link de configuración', 'error')
+      }
+    } catch (error) {
+      logger.error('Error al configurar Stripe:', error)
+      logger.error('Detalles del error:', error.response?.data)
+      logger.error('Status del error:', error.response?.status)
+      showToast(error.response?.data?.detail || 'Error al configurar Stripe', 'error')
+    } finally {
+      setIsLoadingStripe(false)
+    }
+  }
+  
+  // Efecto para cargar estado de Stripe cuando se monta el componente
+  useEffect(() => {
+    fetchStripeStatus()
+  }, [])
 
   // Restaurar scroll cuando el componente se monta
   useEffect(() => {
@@ -372,22 +553,75 @@ const ClientAdminDashboard = () => {
 
       {/* Contenido principal */}
       <main className="max-w-7xl mx-auto px-4 sm:px-5 md:px-6 lg:px-8 py-5 sm:py-6 md:py-7 lg:py-8">
-        {/* Sección Usuarios registrados */}
+        {/* Título principal con estado de cuenta */}
         <div className="mb-6 sm:mb-7 md:mb-8">
-          <h2 className="text-light-text dark:text-dark-text text-lg sm:text-xl md:text-2xl font-bold text-center mb-4 sm:mb-5">
-            Usuarios registrados
-          </h2>
+          <div className="flex items-center justify-between gap-3 sm:gap-4 mb-6 sm:mb-7">
+            <h2 className="text-light-text dark:text-dark-text text-lg sm:text-xl md:text-2xl font-bold">
+              Mis Sucursales
+            </h2>
+            
+            {/* Estado de Cuenta Stripe */}
+            <div className="flex justify-end flex-shrink-0">
+              {!isLoadingStripe && stripeAccountStatus && (
+                <>
+                  {stripeAccountStatus.status === 'active' && (
+                    <div className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                      <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <span className="text-xs sm:text-sm font-medium text-green-700 dark:text-green-400 whitespace-nowrap">Stripe Activo</span>
+                    </div>
+                  )}
+
+                  {(stripeAccountStatus.status === 'pending' || stripeAccountStatus.status === 'restricted' || stripeAccountStatus.status === 'not_configured') && (
+                    <button
+                      onClick={stripeAccountStatus.status === 'not_configured' ? handleConfigureStripe : handleRegenerateOnboarding}
+                      disabled={isLoadingStripe}
+                      className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg hover:bg-yellow-100 dark:hover:bg-yellow-900/30 transition-colors disabled:opacity-50 group"
+                      title="Click para configurar Stripe"
+                    >
+                      <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                      <div className="flex flex-col items-start min-w-0">
+                        <span className="text-xs sm:text-sm font-medium text-yellow-700 dark:text-yellow-400 whitespace-nowrap">Configurar Stripe</span>
+                        <span className="text-[10px] sm:text-xs text-yellow-600 dark:text-yellow-500 whitespace-nowrap">Click aquí</span>
+                      </div>
+                      <svg className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-yellow-700 dark:text-yellow-400 flex-shrink-0 group-hover:translate-x-0.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </button>
+                  )}
+
+                  {stripeAccountStatus.status === 'error' && (
+                    <div className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                      <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                      <span className="text-xs sm:text-sm font-medium text-red-700 dark:text-red-400 whitespace-nowrap">Error en Stripe</span>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* Sección Mis Sucursales */}
-        <div>
-          <h3 className="text-light-text dark:text-dark-text text-base sm:text-lg md:text-xl font-bold mb-4 sm:mb-5">
-            Mis Sucursales
-          </h3>
-
-          {/* Lista de sucursales */}
-          <div className="space-y-3 sm:space-y-4 md:space-y-5">
-            {sucursales.map((sucursal, index) => (
+        {/* Lista de Sucursales */}
+        {/* Estado de carga */}
+        {isLoading ? (
+            <div className="flex justify-center items-center py-12">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#FDB913]"></div>
+            </div>
+          ) : sucursales.length === 0 ? (
+            <div className="bg-light-card dark:bg-dark-card rounded-xl p-8 text-center border border-gray-200 dark:border-[#3a3a3c]">
+              <p className="text-light-text-secondary dark:text-gray-400 text-base">
+                No hay sucursales registradas
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3 sm:space-y-4 md:space-y-5">
+              {sucursales.map((sucursal, index) => (
               <div
                 key={sucursal.id}
                 className="bg-light-card dark:bg-dark-card rounded-xl sm:rounded-[18px] md:rounded-2xl p-4 sm:p-5 md:p-6 border border-gray-200 dark:border-[#3a3a3c] hover:border-[#FDB913] dark:hover:border-[#FDB913] transition-all duration-300 shadow-sm hover:shadow-md"
@@ -458,8 +692,8 @@ const ClientAdminDashboard = () => {
                 </div>
               </div>
             ))}
-          </div>
-        </div>
+            </div>
+          )}
       </main>
 
       {/* Botón flotante para agregar sucursal */}
